@@ -23,8 +23,8 @@ A highly efficient cross-platform application for transcribing audio/video/live 
 
 - [x] **Cross-Platform Framework Selection** - Flutter recommended
 - [x] **Development Environment Setup** - Comprehensive toolchain
-- [ ] **Core Whisper Integration** - faster-whisper → whisper.cpp migration path
-- [ ] **Universal Audio Input** - Files, live recording, YouTube, podcast streaming
+- [x] **Core Whisper Integration** - faster-whisper → whisper.cpp migration path
+- [x] **Universal Audio Input** - Files, live recording, YouTube, podcast streaming
 - [ ] **Precise Timestamping** - Jump-to-position functionality for all media types
 - [ ] **Basic Transcription Interface** - Real-time and file-based processing
 
