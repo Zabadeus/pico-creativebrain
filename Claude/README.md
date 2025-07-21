@@ -1,1 +1,0 @@
-- **Second Brain Architecture**: Knowledge linking, cataloging, and content generation
