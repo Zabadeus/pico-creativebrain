@@ -173,6 +173,10 @@ A highly efficient cross-platform application for transcribing audio/video/live 
    # Features needed:
    # - OpenAI API integration
    # - Anthropic Claude API integration
+   # - Google Gemini API integration
+   # - HuggingFace API Integration
+   # - OpenRouter API Integration
+   # - Local LLM like Llama
    # - Content enhancement through AI
    ```
 
@@ -290,17 +294,84 @@ A highly efficient cross-platform application for transcribing audio/video/live 
 
 ## 🚨 **CRITICAL SUCCESS FACTOR**
 
-**The backend is remarkably more complete than initially assessed.** ContentVersionManager.py is a sophisticated, production-ready implementation that handles:
-
-- Multiple content versions with seamless switching
-- Advanced text cleaning and summarization
-- Professional export capabilities
-- Comprehensive analytics
-
 **Primary Blocker**: Frontend development is now the critical path. The backend is ready to support a full-featured UI.
 
 **Recommendation**: Focus all development resources on Flutter frontend implementation, as the backend architecture is solid and feature-complete for initial release.
 
+**Todo and Sugguestion List**:
+
+1. Check if storage file structure already exists in py files:
+   Probably best to use Markdown.
+   Example File Storage Structure for Version Management
+   Storage Architecture
+   transcripts/
+   ├── [session_id]/
+   │ ├── metadata.json # Session info, timestamps, settings used
+   │ ├── audio/ # Original media files
+   │ │ ├── original.wav
+   │ │ └── segments/ # Audio chunks for timestamp mapping
+   │ ├── versions/
+   │ │ ├── original.md # Raw transcript with timestamps
+   │ │ ├── cleaned.md # Processed version (filler words removed)
+   │ │ └── summary.md # AI-generated summary
+   │ ├── knowledge/
+   │ │ ├── tags.json # Auto and manual tags
+   │ │ ├── links.json # Cross-references to other sessions
+   │ │ └── insights.md # AI-generated insights/key points
+   │ └── exports/ # Generated content from this session
+
+Markdown Format with Metadata:
+
+markdown---
+version: "original"
+session_id: "20250721_143022"
+duration: "00:45:32"
+speaker_count: 2
+privacy_mode: "selective"
+ai_processed: false
+created: "2025-07-21T14:30:22Z"
+
 ---
 
-**Status: Backend significantly exceeds expectations. Ready for rapid frontend development and user testing.** 🚀
+# Transcript: Project Planning Discussion
+
+## [00:00:15] Speaker 1
+
+So we're looking at implementing this new feature...
+
+## [00:00:32] Speaker 2
+
+That sounds great, but what about the timeline?
+
+<!-- Timestamp format allows precise audio jumping -->
+
+Maybe use similar markdown display like Obsidian.
+
+2. UI Design:
+
+- Clean design to reduce noise
+- Themes like dark and light modes an customizable colors for different sections of the UI
+  On Desktop:
+- All similar to VSCode or Obsidian (maybe it is easier with Electron.js since VSCode is using it afaik)
+- A header section with windows to show or hide certain things like AI Usage Monitor, Knowledge Graph and Links, maybe a search bar to search the document opened in the main window.
+- On the left side icons and an expandable section for filemanagment (with search option for files or words in files), transcription page, content creation page, settings at the bottom.
+- Settings section/menu to configure API keys, AI optimisation settings, Local Mode, Privacy Mode, Transcription Settings, Markdown settings with different color coding, storage, microphone settings.
+- An AI chat terminal where one can select different AI models
+- On transcript page a section to upload files (click or drag and drop) or paste a url for YT or a Podcast, and recording controles (with record button, pause and stop) for live recording and transcribing.
+  Here and in the saved file have the basic data of the file and audio displayed, be able to listen to the file while it shows the place where it is on the transcript by highlighting the words spoken.
+- Tap system with multiple documents or transcription pages open.
+- Multi-window/sections view where one can view multiple tabs side by side or underneath each other (like in VSCode)
+- Have the option to select a text, right click and show the text in e.g. original/summary/cleaned that represense the same information in their different forms.
+  Or show the the next more comprihensive text as a tooltip like window: summary > cleaned > original
+- When highlighting a text in one window like original it also highlights the text how it is in the clean version or summary if it's opened in a multi window view.
+
+3. Features to implement:
+
+- Define Speakers before, after or during transcription. For example when the user knows that Speaker 1 is "Max" or Speaker 2 "Tim Häring" he can name them and it's automatically applied to the speaker
+- multi/bulk-transcription
+- Create and edit templates for filestructure and automation workflows with AI like automatically clean and summarize transcribts and uploaded texts, add categories and connections
+- Define, edit and select AI agents or modes like research, always reference sources etc.
+- automatic sync with claud storage like google drive, onedrive or iCloud
+- Word Count
+- set timer and riminder
+- calender
