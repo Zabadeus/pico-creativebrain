@@ -799,4 +799,709 @@ class FileStorageManager:
                 total_size += file_path.stat().st_size
         return total_size
     
-    def _export_session_json(self, session_id: str,
+    def _export_session_json(self, session_id: str, exports_dir: Path, timestamp: str, include_audio: bool = True) -> str:
+        """Export session as comprehensive JSON file"""
+        export_file = exports_dir / f"session_{session_id}_{timestamp}.json"
+        
+        try:
+            # Collect all session data
+            export_data = {
+                'session_id': session_id,
+                'export_timestamp': datetime.now().isoformat(),
+                'export_format': 'json',
+                'metadata': None,
+                'content_versions': {},
+                'knowledge_data': None,
+                'audio_info': {},
+                'segments_info': None,
+                'stats': None
+            }
+            
+            # Load metadata
+            metadata = self.load_session_metadata(session_id)
+            if metadata:
+                export_data['metadata'] = asdict(metadata)
+            
+            # Load all content versions
+            for version_type in VersionType:
+                version = self.load_content_version(session_id, version_type)
+                if version:
+                    # Convert segments to serializable format
+                    segments_data = []
+                    for segment in version.segments:
+                        segments_data.append({
+                            'start_time': segment.start_time,
+                            'end_time': segment.end_time,
+                            'text': segment.text,
+                            'speaker': segment.speaker,
+                            'confidence': getattr(segment, 'confidence', 1.0)
+                        })
+                    
+                    export_data['content_versions'][version_type.value] = {
+                        'full_text': version.full_text,
+                        'segments': segments_data,
+                        'word_count': version.word_count,
+                        'created_at': version.created_at.isoformat(),
+                        'metadata': version.metadata
+                    }
+            
+            # Load knowledge data
+            knowledge = self.load_knowledge_data(session_id)
+            if knowledge:
+                export_data['knowledge_data'] = asdict(knowledge)
+            
+            # Audio information (metadata only, not raw data unless specifically requested)
+            session_path = self._get_session_path(session_id)
+            audio_dir = session_path / "audio"
+            if audio_dir.exists():
+                original_audio = audio_dir / "original.wav"
+                if original_audio.exists():
+                    stat = original_audio.stat()
+                    export_data['audio_info'] = {
+                        'has_original': True,
+                        'file_size_bytes': stat.st_size,
+                        'file_modified': datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    }
+                    
+                    # Include audio as base64 if requested (be careful with large files!)
+                    if include_audio and stat.st_size < 50 * 1024 * 1024:  # Only if < 50MB
+                        import base64
+                        with open(original_audio, 'rb') as f:
+                            export_data['audio_info']['audio_data_base64'] = base64.b64encode(f.read()).decode('utf-8')
+                
+                # Load segments info
+                segments_index = audio_dir / "segments" / "segments_index.json"
+                if segments_index.exists():
+                    with open(segments_index, 'r', encoding='utf-8') as f:
+                        export_data['segments_info'] = json.load(f)
+            
+            # Session statistics
+            export_data['stats'] = self.get_session_stats(session_id)
+            
+            # Write JSON export
+            with open(export_file, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+            
+            return str(export_file)
+            
+        except Exception as e:
+            raise StorageError(f"Failed to export session {session_id} as JSON: {str(e)}")
+    
+    def _export_session_zip(self, session_id: str, exports_dir: Path, timestamp: str, include_audio: bool = True) -> str:
+        """Export complete session as ZIP archive"""
+        import zipfile
+        
+        export_file = exports_dir / f"session_{session_id}_{timestamp}.zip"
+        session_path = self._get_session_path(session_id)
+        
+        try:
+            with zipfile.ZipFile(export_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for file_path in session_path.rglob('*'):
+                    if file_path.is_file():
+                        # Skip audio files if not requested
+                        if not include_audio and 'audio/' in str(file_path.relative_to(session_path)):
+                            continue
+                        
+                        # Skip the exports directory to avoid recursive inclusion
+                        if 'exports/' in str(file_path.relative_to(session_path)):
+                            continue
+                        
+                        # Add file to zip with relative path
+                        arcname = str(file_path.relative_to(session_path))
+                        zipf.write(file_path, arcname)
+                
+                # Add export manifest
+                manifest = {
+                    'session_id': session_id,
+                    'export_timestamp': datetime.now().isoformat(),
+                    'export_format': 'zip',
+                    'includes_audio': include_audio,
+                    'exported_by': 'FileStorageManager',
+                    'structure': {
+                        'metadata.json': 'Session metadata and settings',
+                        'audio/': 'Original audio files and segments' if include_audio else 'Not included',
+                        'versions/': 'Content versions (original, cleaned, summaries)',
+                        'knowledge/': 'Tags, links, and insights data'
+                    }
+                }
+                
+                zipf.writestr('export_manifest.json', json.dumps(manifest, indent=2))
+            
+            return str(export_file)
+            
+        except Exception as e:
+            raise StorageError(f"Failed to export session {session_id} as ZIP: {str(e)}")
+    
+    def _export_session_html(self, session_id: str, exports_dir: Path, timestamp: str) -> str:
+        """Export session as interactive HTML report"""
+        export_file = exports_dir / f"session_{session_id}_{timestamp}.html"
+        
+        try:
+            # Load session data
+            metadata = self.load_session_metadata(session_id)
+            knowledge = self.load_knowledge_data(session_id)
+            stats = self.get_session_stats(session_id)
+            
+            # Load content versions
+            versions = {}
+            for version_type in VersionType:
+                version = self.load_content_version(session_id, version_type)
+                if version:
+                    versions[version_type.value] = version
+            
+            # Generate HTML content
+            html_content = self._generate_html_template(session_id, metadata, knowledge, versions, stats, timestamp)
+            
+            with open(export_file, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            
+            return str(export_file)
+            
+        except Exception as e:
+            raise StorageError(f"Failed to export session {session_id} as HTML: {str(e)}")
+    
+    def _generate_html_template(self, session_id: str, metadata: Optional[SessionMetadata], 
+                               knowledge: Optional[KnowledgeData], versions: Dict[str, Any], 
+                               stats: Dict[str, Any], timestamp: str) -> str:
+        """Generate HTML template for session export"""
+        
+        # Create HTML structure
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Report: {session_id}</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }}
+        
+        .header {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }}
+        
+        .header h1 {{ margin: 0; font-size: 2.5em; }}
+        .header .meta {{ opacity: 0.9; margin-top: 10px; }}
+        
+        .content {{
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        
+        .version-tabs {{
+            display: flex;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 4px;
+            margin-bottom: 20px;
+        }}
+        
+        .version-tab {{
+            flex: 1;
+            padding: 10px 20px;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s;
+        }}
+        
+        .version-tab.active {{
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            color: #667eea;
+        }}
+        
+        .version-content {{
+            display: none;
+            animation: fadeIn 0.3s;
+        }}
+        
+        .version-content.active {{ display: block; }}
+        
+        @keyframes fadeIn {{
+            from {{ opacity: 0; transform: translateY(10px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
+        }}
+        
+        .segment {{
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            border-radius: 0 8px 8px 0;
+        }}
+        
+        .segment-header {{
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }}
+        
+        .stats-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }}
+        
+        .stat-card {{
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }}
+        
+        .stat-number {{
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }}
+        
+        .stat-label {{
+            color: #666;
+            font-size: 0.9em;
+        }}
+        
+        .tags {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }}
+        
+        .tag {{
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 500;
+        }}
+        
+        .auto-tag {{ background: #f3e5f5; color: #7b1fa2; }}
+        .manual-tag {{ background: #e8f5e8; color: #388e3c; }}
+        
+        .insights ul {{
+            list-style: none;
+            padding: 0;
+        }}
+        
+        .insights li {{
+            background: #f8f9fa;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            border-left: 3px solid #28a745;
+        }}
+        
+        .export-info {{
+            background: #e7f3ff;
+            border: 1px solid #b8daff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 30px;
+            font-size: 0.9em;
+            color: #004085;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📝 Session Report</h1>
+        <div class="meta">
+            <strong>Session ID:</strong> {session_id}<br>
+            <strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}<br>
+            <strong>Duration:</strong> {metadata.duration if metadata else 'Unknown'}<br>
+            <strong>Privacy Mode:</strong> {metadata.privacy_mode if metadata else 'Unknown'}
+        </div>
+    </div>"""
+        
+        # Add statistics
+        if stats:
+            html += f"""
+    <div class="content">
+        <h2>📊 Session Statistics</h2>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number">{len(versions)}</div>
+                <div class="stat-label">Content Versions</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{stats.get('files_count', 0)}</div>
+                <div class="stat-label">Total Files</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{self._format_file_size(stats.get('total_size_bytes', 0))}</div>
+                <div class="stat-label">Total Size</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{'✅' if stats.get('has_audio') else '❌'}</div>
+                <div class="stat-label">Has Audio</div>
+            </div>
+        </div>
+    </div>"""
+        
+        # Add knowledge data
+        if knowledge:
+            html += f"""
+    <div class="content">
+        <h2>🧠 Knowledge & Insights</h2>
+        
+        <h3>Tags & Topics</h3>
+        <div class="tags">"""
+            
+            for tag in knowledge.auto_tags:
+                html += f'<span class="tag auto-tag">🤖 {tag}</span>'
+            
+            for tag in knowledge.manual_tags:
+                html += f'<span class="tag manual-tag">👤 {tag}</span>'
+                
+            html += """</div>
+        
+        <h3>Key Insights</h3>
+        <div class="insights">"""
+            
+            if knowledge.key_points:
+                html += "<ul>"
+                for point in knowledge.key_points:
+                    html += f"<li>{point}</li>"
+                html += "</ul>"
+            
+            if knowledge.insights:
+                for insight in knowledge.insights:
+                    html += f"<p>{insight}</p>"
+                    
+            html += """</div>
+    </div>"""
+        
+        # Add content versions
+        if versions:
+            html += """
+    <div class="content">
+        <h2>📄 Content Versions</h2>
+        
+        <div class="version-tabs">"""
+            
+            for i, (version_name, version_data) in enumerate(versions.items()):
+                active_class = "active" if i == 0 else ""
+                html += f'<button class="version-tab {active_class}" onclick="switchVersion(\'{version_name}\')">{version_name.title()}</button>'
+            
+            html += "</div>"
+            
+            for i, (version_name, version_data) in enumerate(versions.items()):
+                active_class = "active" if i == 0 else ""
+                html += f"""
+        <div class="version-content {active_class}" id="version-{version_name}">
+            <div style="margin-bottom: 15px; color: #666;">
+                <strong>Word Count:</strong> {version_data.word_count} | 
+                <strong>Created:</strong> {version_data.created_at.strftime('%Y-%m-%d %H:%M')}
+            </div>"""
+                
+                if version_data.segments:
+                    for segment in version_data.segments:
+                        speaker_info = f" - {segment.speaker}" if segment.speaker else ""
+                        html += f"""
+            <div class="segment">
+                <div class="segment-header">[{self._format_timestamp(segment.start_time)}]{speaker_info}</div>
+                <div>{segment.text}</div>
+            </div>"""
+                else:
+                    # Show full text if no segments
+                    html += f'<div style="white-space: pre-wrap; background: #f8f9fa; padding: 20px; border-radius: 8px;">{version_data.full_text}</div>'
+                
+                html += "</div>"
+        
+        # Add JavaScript for version switching
+        html += """
+    </div>
+    
+    <div class="export-info">
+        <strong>Export Information:</strong><br>
+        This HTML report was generated from your PICO Creative Brain session data. 
+        All content is self-contained in this file for easy sharing and archiving.
+        Generated on """ + timestamp + """ using FileStorageManager v1.0
+    </div>
+    
+    <script>
+        function switchVersion(versionName) {
+            // Hide all version contents
+            document.querySelectorAll('.version-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Remove active class from all tabs
+            document.querySelectorAll('.version-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected version content
+            document.getElementById('version-' + versionName).classList.add('active');
+            
+            // Activate selected tab
+            event.target.classList.add('active');
+        }
+    </script>
+</body>
+</html>"""
+        
+        return html
+    
+    def _format_file_size(self, size_bytes: int) -> str:
+        """Format file size in human readable format"""
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+        else:
+            return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+    
+    def backup_session(self, session_id: str, backup_location: Optional[str] = None) -> str:
+        """
+        Create a backup of a session
+        
+        Args:
+            session_id: Session identifier
+            backup_location: Optional custom backup location
+            
+        Returns:
+            str: Path to backup file
+        """
+        if backup_location:
+            backup_dir = Path(backup_location)
+        else:
+            backup_dir = self.base_path / "backups"
+        
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = backup_dir / f"backup_{session_id}_{timestamp}.zip"
+        
+        try:
+            # Use ZIP export functionality
+            temp_exports_dir = self.base_path / session_id / "exports"
+            temp_exports_dir.mkdir(exist_ok=True)
+            
+            zip_path = self._export_session_zip(session_id, temp_exports_dir, timestamp, include_audio=True)
+            
+            # Move to backup location
+            shutil.move(zip_path, backup_file)
+            
+            return str(backup_file)
+            
+        except Exception as e:
+            raise StorageError(f"Failed to backup session {session_id}: {str(e)}")
+    
+    def restore_session(self, backup_file: str, new_session_id: Optional[str] = None) -> str:
+        """
+        Restore a session from backup
+        
+        Args:
+            backup_file: Path to backup ZIP file
+            new_session_id: Optional new session ID (auto-generated if None)
+            
+        Returns:
+            str: The restored session ID
+        """
+        import zipfile
+        
+        backup_path = Path(backup_file)
+        if not backup_path.exists():
+            raise StorageError(f"Backup file not found: {backup_file}")
+        
+        if not new_session_id:
+            new_session_id = self._generate_session_id()
+        
+        session_path = self.base_path / new_session_id
+        
+        if session_path.exists():
+            raise StorageError(f"Session {new_session_id} already exists")
+        
+        try:
+            with zipfile.ZipFile(backup_path, 'r') as zipf:
+                zipf.extractall(session_path)
+            
+            # Update session ID in metadata if it was restored with a new ID
+            metadata_file = session_path / "metadata.json"
+            if metadata_file.exists():
+                with open(metadata_file, 'r', encoding='utf-8') as f:
+                    metadata_data = json.load(f)
+                
+                original_session_id = metadata_data.get('session_id')
+                metadata_data['session_id'] = new_session_id
+                metadata_data['restored_from'] = original_session_id
+                metadata_data['restored_at'] = datetime.now().isoformat()
+                
+                with open(metadata_file, 'w', encoding='utf-8') as f:
+                    json.dump(metadata_data, f, indent=2)
+            
+            return new_session_id
+            
+        except Exception as e:
+            # Cleanup on failure
+            if session_path.exists():
+                shutil.rmtree(session_path)
+            raise StorageError(f"Failed to restore session from {backup_file}: {str(e)}")
+    
+    def cleanup_old_exports(self, session_id: str, keep_latest: int = 3) -> int:
+        """
+        Clean up old export files, keeping only the latest N files
+        
+        Args:
+            session_id: Session identifier
+            keep_latest: Number of latest export files to keep
+            
+        Returns:
+            int: Number of files deleted
+        """
+        session_path = self._get_session_path(session_id)
+        exports_dir = session_path / "exports"
+        
+        if not exports_dir.exists():
+            return 0
+        
+        # Get all export files with their modification times
+        export_files = []
+        for file_path in exports_dir.glob("session_*"):
+            if file_path.is_file():
+                export_files.append((file_path, file_path.stat().st_mtime))
+        
+        # Sort by modification time (newest first)
+        export_files.sort(key=lambda x: x[1], reverse=True)
+        
+        # Delete old files
+        deleted_count = 0
+        for file_path, _ in export_files[keep_latest:]:
+            try:
+                file_path.unlink()
+                deleted_count += 1
+            except Exception:
+                pass  # Skip files that can't be deleted
+        
+        return deleted_count
+    
+    def validate_session_integrity(self, session_id: str) -> Dict[str, Any]:
+        """
+        Validate session data integrity and return status report
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            Dict with validation results
+        """
+        session_path = self._get_session_path(session_id)
+        
+        validation_result = {
+            'session_id': session_id,
+            'valid': True,
+            'errors': [],
+            'warnings': [],
+            'checks': {
+                'metadata_exists': False,
+                'metadata_valid': False,
+                'versions_consistent': False,
+                'knowledge_data_valid': False,
+                'audio_files_accessible': False,
+                'directory_structure_complete': False
+            }
+        }
+        
+        try:
+            # Check if session exists
+            if not session_path.exists():
+                validation_result['valid'] = False
+                validation_result['errors'].append("Session directory does not exist")
+                return validation_result
+            
+            # Check metadata
+            metadata_file = session_path / "metadata.json"
+            if metadata_file.exists():
+                validation_result['checks']['metadata_exists'] = True
+                try:
+                    metadata = self.load_session_metadata(session_id)
+                    if metadata:
+                        validation_result['checks']['metadata_valid'] = True
+                    else:
+                        validation_result['warnings'].append("Metadata file exists but could not be loaded")
+                except Exception as e:
+                    validation_result['warnings'].append(f"Metadata validation failed: {str(e)}")
+            else:
+                validation_result['errors'].append("Metadata file missing")
+                validation_result['valid'] = False
+            
+            # Check directory structure
+            required_dirs = ['audio', 'versions', 'knowledge', 'exports']
+            missing_dirs = []
+            for dir_name in required_dirs:
+                if not (session_path / dir_name).exists():
+                    missing_dirs.append(dir_name)
+            
+            if not missing_dirs:
+                validation_result['checks']['directory_structure_complete'] = True
+            else:
+                validation_result['warnings'].append(f"Missing directories: {', '.join(missing_dirs)}")
+            
+            # Check content versions consistency
+            versions_consistent = True
+            for version_type in VersionType:
+                try:
+                    version = self.load_content_version(session_id, version_type)
+                    if version and hasattr(version, 'segments') and version.segments:
+                        # Basic consistency checks
+                        if version.word_count <= 0:
+                            versions_consistent = False
+                            validation_result['warnings'].append(f"Version {version_type.value} has invalid word count")
+                except Exception as e:
+                    validation_result['warnings'].append(f"Could not validate version {version_type.value}: {str(e)}")
+                    versions_consistent = False
+            
+            validation_result['checks']['versions_consistent'] = versions_consistent
+            
+            # Check knowledge data
+            try:
+                knowledge = self.load_knowledge_data(session_id)
+                if knowledge:
+                    validation_result['checks']['knowledge_data_valid'] = True
+            except Exception as e:
+                validation_result['warnings'].append(f"Knowledge data validation failed: {str(e)}")
+            
+            # Check audio files
+            audio_dir = session_path / "audio"
+            if audio_dir.exists():
+                original_audio = audio_dir / "original.wav"
+                if original_audio.exists() and original_audio.stat().st_size > 0:
+                    validation_result['checks']['audio_files_accessible'] = True
+                else:
+                    validation_result['warnings'].append("Audio directory exists but no valid audio file found")
+            
+            # Final validation status
+            if validation_result['errors']:
+                validation_result['valid'] = False
+            
+        except Exception as e:
+            validation_result['valid'] = False
+            validation_result['errors'].append(f"Validation process failed: {str(e)}")
+        
+        return validation_result
