@@ -136,12 +136,48 @@ A highly efficient cross-platform application for transcribing audio/video/live 
    - **Professional-grade implementation ready for production**
 
 4. **PrivacyManager.py** (95% Complete)
+
    - Comprehensive privacy control system
    - Multiple privacy modes and provider permissions
    - Content analysis and PII detection
    - Usage logging and monitoring
    - GDPR/CCPA compliance features
    - Content anonymization capabilities
+
+5. **FileStorageManager.py** (100% Complete)
+
+- Session Management: Creates, loads, and deletes transcription sessions with unique IDs
+- Audio Storage: Saves original audio files and segmented chunks for timestamp mapping
+- Version Control: Stores multiple versions of transcripts (original, cleaned, summaries) as markdown files
+- Knowledge Management: Handles AI-generated tags, insights, cross-references, and key points
+- Metadata Tracking: Maintains session info like duration, speaker count, privacy settings
+- Export Functionality: Exports sessions in JSON, ZIP, or HTML formats
+- Privacy Controls: Supports different privacy modes (full, selective, metadata-only, none)
+
+File Structure It Creates:
+transcripts/[session_id]/
+├── metadata.json # Session info
+├── audio/ # Original media + segments
+├── versions/ # Different transcript versions
+├── knowledge/ # Tags, insights, cross-links
+└── exports/ # Generated exports
+
+Storage Architecture extended understanding:
+transcripts/
+├── [session_id]/
+│ ├── metadata.json # Session info, timestamps, settings used
+│ ├── audio/ # Original media files
+│ │ ├── original.wav
+│ │ └── segments/ # Audio chunks for timestamp mapping
+│ ├── versions/
+│ │ ├── original.md # Raw transcript with timestamps
+│ │ ├── cleaned.md # Processed version (filler words removed)
+│ │ └── summary.md # AI-generated summary
+│ ├── knowledge/
+│ │ ├── tags.json # Auto and manual tags
+│ │ ├── links.json # Cross-references to other sessions
+│ │ └── insights.md # AI-generated insights/key points
+│ └── exports/ # Generated content from this session
 
 ### ❌ **NOT YET IMPLEMENTED**
 
@@ -300,54 +336,7 @@ A highly efficient cross-platform application for transcribing audio/video/live 
 
 **Todo and Sugguestion List**:
 
-1. Check if storage file structure already exists in py files:
-   Probably best to use Markdown.
-   Example File Storage Structure for Version Management
-   Storage Architecture
-   transcripts/
-   ├── [session_id]/
-   │ ├── metadata.json # Session info, timestamps, settings used
-   │ ├── audio/ # Original media files
-   │ │ ├── original.wav
-   │ │ └── segments/ # Audio chunks for timestamp mapping
-   │ ├── versions/
-   │ │ ├── original.md # Raw transcript with timestamps
-   │ │ ├── cleaned.md # Processed version (filler words removed)
-   │ │ └── summary.md # AI-generated summary
-   │ ├── knowledge/
-   │ │ ├── tags.json # Auto and manual tags
-   │ │ ├── links.json # Cross-references to other sessions
-   │ │ └── insights.md # AI-generated insights/key points
-   │ └── exports/ # Generated content from this session
-
-Markdown Format with Metadata:
-
-markdown---
-version: "original"
-session_id: "20250721_143022"
-duration: "00:45:32"
-speaker_count: 2
-privacy_mode: "selective"
-ai_processed: false
-created: "2025-07-21T14:30:22Z"
-
----
-
-# Transcript: Project Planning Discussion
-
-## [00:00:15] Speaker 1
-
-So we're looking at implementing this new feature...
-
-## [00:00:32] Speaker 2
-
-That sounds great, but what about the timeline?
-
-<!-- Timestamp format allows precise audio jumping -->
-
-Maybe use similar markdown display like Obsidian.
-
-2. UI Design:
+1. UI Design:
 
 - Clean design to reduce noise
 - Themes like dark and light modes an customizable colors for different sections of the UI
